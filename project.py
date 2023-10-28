@@ -119,3 +119,4 @@ predicted_class_label = dataset['Class'].unique()[predicted_class]
 
 # Print the predicted class label
 print("Predicted class:", predicted_class_label)
+
