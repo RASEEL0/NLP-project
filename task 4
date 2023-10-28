@@ -1,0 +1,184 @@
+!pip install transformers
+!pip install pandas
+!pip install torch
+!pip install matplotlib
+
+import pandas as pd
+import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.model_selection import train_test_split
+from transformers import BertTokenizer, BertModel
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+# Read the dataset from CSV file
+dataset = pd.read_csv('/content/Emotion_classify_Data.csv')
+
+# Extract the text and corresponding labels from the dataset
+texts = dataset['Comment'].tolist()
+labels = dataset['Emotion'].tolist()
+
+# Split the dataset into training and testing sets
+train_texts, test_texts, train_labels, test_labels = train_test_split(texts, labels, test_size=0.2, random_state=42)
+
+# Handcrafted Features Model
+# --------------------------------------------
+
+# Vectorize the texts using TF-IDF
+tfidf_vectorizer = TfidfVectorizer()
+train_features = tfidf_vectorizer.fit_transform(train_texts)
+test_features = tfidf_vectorizer.transform(test_texts)
+
+# Train a logistic regression model
+lr_model = LogisticRegression()
+lr_model.fit(train_features, train_labels)
+
+# Make predictions on the test set
+lr_predictions = lr_model.predict(test_features)
+
+# Evaluate the model
+lr_accuracy = accuracy_score(test_labels, lr_predictions)
+lr_precision = precision_score(test_labels, lr_predictions, average='macro')
+lr_recall = recall_score(test_labels, lr_predictions, average='macro')
+lr_f1 = f1_score(test_labels, lr_predictions, average='macro')
+
+# Automatic Features Model
+# --------------------------------------------
+
+# Load the pre-trained BERT tokenizer
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+# Tokenize the texts
+train_inputs = tokenizer(train_texts, padding=True, truncation=True, return_tensors='pt')
+test_inputs = tokenizer(test_texts, padding=True, truncation=True, return_tensors='pt')
+
+# Extract the input IDs and attention masks
+train_input_ids = train_inputs['input_ids']
+train_attention_masks = train_inputs['attention_mask']
+test_input_ids = test_inputs['input_ids']
+test_attention_masks = test_inputs['attention_mask']
+
+# Define the batch size
+batch_size = 16
+
+# Set the device to GPU if available, otherwise use CPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Move the input IDs and attention masks to the device
+train_input_ids = train_input_ids.to(device)
+train_attention_masks = train_attention_masks.to(device)
+test_input_ids = test_input_ids.to(device)
+test_attention_masks = test_attention_masks.to(device)
+
+# Load the pre-trained BERT model
+bert_model = BertModel.from_pretrained('bert-base-uncased')
+
+# Move the BERT model to the device
+bert_model.to(device)
+
+# Extract BERT embeddings for the training set
+train_embeddings = []
+num_train_batches = (len(train_texts) + batch_size - 1) // batch_size
+with torch.no_grad():
+    for i in tqdm(range(num_train_batches), desc='Extracting BERT embeddings for training set'):
+        batch_input_ids = train_input_ids[i * batch_size:(i + 1) * batch_size]
+        batch_attention_masks = train_attention_masks[i * batch_size:(i + 1) * batch_size]
+        outputs = bert_model(batch_input_ids, attention_mask=batch_attention_masks)
+        embeddings = outputs.last_hidden_state[:, 0, :]
+        train_embeddings.append(embeddings)
+
+# Concatenate the BERT embeddings for the training set
+train_embeddings = torch.cat(train_embeddings, dim=0)
+
+# Extract BERT embeddings for the testing set
+test_embeddings = []
+num_test_batches = (len(test_texts) + batch_size - 1) // batch_size
+with torch.no_grad():
+    for i in tqdm(range(num_test_batches), desc='Extracting BERT embeddings for testing set'):
+        batch_input_ids = test_input_ids[i * batch_size:(i + 1) * batch_size]
+        batch_attention_masks = test_attention_masks[i * batch_size:(i + 1) * batch_size]
+        outputs = bert_model(batch_input_ids, attention_mask=batch_attention_masks)
+        embeddings = outputs.last_hidden_state[:, 0, :]
+        test_embeddings.append(embeddings)
+
+# Concatenate the BERT embeddings for the testing set
+test_embeddings = torch.cat(test_embeddings, dim=0)
+
+# Convert the labels to numerical values
+label_mapping = {'anger': 0, 'fear': 1, 'joy': 2}
+train_labels = [label_mapping[label] for label in train_labels]
+test_labels = [label_mapping[label] for label in test_labels]
+
+# Convert the labels to tensors
+train_labels = torch.tensor(train_labels).to(device)
+test_labels =torch.tensor(test_labels).to(device)
+
+# Train a logistic regression model on the BERT embeddings
+bert_lr_model = LogisticRegression()
+bert_lr_model.fit(train_embeddings.cpu().numpy(), train_labels.cpu().numpy())
+
+# Make predictions on the test set using the BERT embeddings model
+bert_lr_predictions = bert_lr_model.predict(test_embeddings.cpu().numpy())
+
+# Evaluate the BERT embeddings model
+bert_lr_accuracy = accuracy_score(test_labels.cpu().numpy(), bert_lr_predictions)
+bert_lr_precision = precision_score(test_labels.cpu().numpy(), bert_lr_predictions, average='macro')
+bert_lr_recall = recall_score(test_labels.cpu().numpy(), bert_lr_predictions, average='macro')
+bert_lr_f1 = f1_score(test_labels.cpu().numpy(), bert_lr_predictions, average='macro')
+
+print("\n\n")
+
+# Print the evaluation results
+print('Handcrafted Features Model:')
+print('Accuracy:', lr_accuracy)
+print('Precision:', lr_precision)
+print('Recall:', lr_recall)
+print('F1 Score:', lr_f1)
+print()
+print('Automatic Features Model (BERT embeddings):')
+print('Accuracy:', bert_lr_accuracy)
+print('Precision:', bert_lr_precision)
+print('Recall:', bert_lr_recall)
+print('F1 Score:', bert_lr_f1)
+
+# Plot the evaluation results
+labels = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
+handcrafted_scores = [lr_accuracy, lr_precision, lr_recall, lr_f1]
+bert_scores = [bert_lr_accuracy, bert_lr_precision, bert_lr_recall, bert_lr_f1]
+
+print("\n\n")
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x=labels, y=handcrafted_scores, color='blue', label='Handcrafted Features')
+sns.barplot(x=labels, y=bert_scores, color='orange', label='Automatic Features (BERT embeddings)')
+plt.xlabel('Metric')
+plt.ylabel('Score')
+plt.title('Evaluation Results')
+plt.legend()
+plt.show()
+# User Input Classification
+# --------------------------------------------
+
+# Ask the user for a sentence
+sentence = input("\n\n--------------------------------\n Enter a sentence: ")
+
+# Preprocess the user input
+input_features = tfidf_vectorizer.transform([sentence])  # Handcrafted features
+input_inputs = tokenizer([sentence], padding=True, truncation=True, return_tensors='pt')  # BERT embeddings
+input_input_ids = input_inputs['input_ids'].to(device)
+input_attention_masks = input_inputs['attention_mask'].to(device)
+with torch.no_grad():
+    input_output = bert_model(input_input_ids, attention_mask=input_attention_masks)
+    input_embedding = input_output.last_hidden_state[:, 0, :]
+
+# Make predictions on the user input
+handcrafted_prediction = lr_model.predict(input_features)
+bert_prediction = bert_lr_model.predict(input_embedding.cpu().numpy())
+
+# Print the predictions
+print("\nHandcrafted Features Model Prediction:\t", handcrafted_prediction[0])
+print("\nBERT Embeddings Model Prediction:\t", bert_prediction[0])
