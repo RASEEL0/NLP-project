@@ -45,12 +45,12 @@ dataset['processed_text'] = dataset['Comment'].apply(preprocess_text)
 # TF-IDF feature extraction
 tfidf_vectorizer = TfidfVectorizer()
 tfidf_features = tfidf_vectorizer.fit_transform(dataset['processed_text'])
-tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+tfidf_feature_names = tfidf_vectorizer.get_feature_names_out()
 
 # Bag of Words feature extraction
 bow_vectorizer = CountVectorizer()
 bow_features = bow_vectorizer.fit_transform(dataset['processed_text'])
-bow_feature_names = bow_vectorizer.get_feature_names()
+bow_feature_names = bow_vectorizer.get_feature_names_out()
 
 # POS tags feature extraction
 pos_tags = []
@@ -94,29 +94,3 @@ print("Preprocessed dataset saved to", preprocessed_dataset_path)
 print("TF-IDF features saved to", tfidf_features_path)
 print("Bag of Words features saved to", bow_features_path)
 print("POS tags saved to", pos_tags_path)
-
-
-########################## for asking user not sure edite later #####################
-
-# Train a classifier (Logistic Regression) using the TF-IDF features
-classifier = LogisticRegression()
-classifier.fit(tfidf_features, dataset['Class'])
-
-# Classify user input
-user_input = input("Enter a sentence: ")
-
-# Preprocess user input
-processed_user_input = preprocess_text(user_input)
-
-# Convert preprocessed user input to TF-IDF features
-user_input_features = tfidf_vectorizer.transform([processed_user_input])
-
-# Classify user input using the trained classifier
-predicted_class = classifier.predict(user_input_features)[0]
-
-# Get the class label based on the predicted class index
-predicted_class_label = dataset['Class'].unique()[predicted_class]
-
-# Print the predicted class label
-print("Predicted class:", predicted_class_label)
-
